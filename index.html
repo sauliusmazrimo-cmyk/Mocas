@@ -214,6 +214,9 @@
     .hidden { display: none !important; }
     .danger-text { color: #fecaca; }
     .ok-text { color: #bbf7d0; }
+    .checkline { display:flex; align-items:center; gap:8px; color: var(--text); font-size: 13px; }
+    .checkline input { width:auto; }
+    .sync-box { border: 1px solid var(--line); border-radius: 15px; padding: 12px; background: rgba(255,255,255,0.04); }
 
     @media (max-width: 760px) {
       .app { padding: 10px; }
@@ -398,6 +401,20 @@
               <button class="btn danger" id="wipeBtn">Ištrinti visus duomenis</button>
             </div>
             <div class="hr"></div>
+            <h3>Google Sheets sinchronizacija</h3>
+            <div class="sync-box">
+              <p class="small">Įrašai pirmiausia saugomi telefone, tada siunčiami į Google Sheet. Jei nėra interneto, jie lieka eilėje ir išsisiunčia vėliau.</p>
+              <div><label>Apps Script Web App URL</label><input id="sheetWebAppUrl" placeholder="https://script.google.com/macros/s/.../exec"></div>
+              <div style="margin-top:10px"><label>Token / slaptažodis</label><input id="sheetToken" placeholder="pvz. motociklas2026"></div>
+              <label class="checkline" style="margin-top:10px"><input type="checkbox" id="sheetSyncEnabled"> Įjungti automatinį siuntimą į Sheet</label>
+              <div class="form-actions">
+                <button class="btn primary" id="saveSheetConfigBtn">Išsaugoti Sheet nustatymus</button>
+                <button class="btn ok" id="syncNowBtn">Išsiųsti laukiančius</button>
+                <button class="btn blue" id="queueActiveTripBtn">Į eilę įdėti visą aktyvią kelionę</button>
+              </div>
+              <div class="small" id="sheetSyncStatus" style="margin-top:8px"></div>
+            </div>
+            <div class="hr"></div>
             <h3>Techninė pastaba</h3>
             <p class="small">GPS telefone normaliai veikia tik per HTTPS arba localhost. Įkelk į Netlify / GitHub Pages / savo serverį. Failo atidarymas tiesiai iš telefono gali neveikti.</p>
           </div>
@@ -413,11 +430,16 @@
 
   <script>
     const STORAGE_KEY = 'motoTripPwa.v1';
+    const SHEET_CONFIG_KEY = 'motoTripPwa.sheetConfig.v1';
+    const SHEET_QUEUE_KEY = 'motoTripPwa.sheetQueue.v1';
     const currencies = ['EUR', 'GBP', 'CHF', 'PLN', 'CZK', 'HUF', 'RON', 'BGN', 'DKK', 'SEK', 'NOK', 'TRY', 'USD'];
     const expenseCategories = ['Kava', 'Maistas', 'Viešbutis', 'Keltas', 'Kelių mokesčiai', 'Parkingas', 'Motociklas', 'Apsipirkimas', 'Pramogos', 'Kita'];
     const stopTypes = ['Startas', 'Kuras', 'Kava', 'Maistas', 'Viešbutis', 'Kempingas', 'Apžvalgos vieta', 'Siena', 'Gedimas', 'Finišas', 'Kita'];
 
     let state = loadState();
+    let sheetConfig = loadSheetConfig();
+    let sheetQueue = loadSheetQueue();
+    let isSyncing = false;
     let map = null;
     let mapLayer = null;
     let routeLayer = null;
@@ -468,6 +490,40 @@
       } catch {
         return { trips: [], activeTripId: null };
       }
+    }
+
+    function loadSheetConfig() {
+      try {
+        const raw = localStorage.getItem(SHEET_CONFIG_KEY);
+        const cfg = raw ? JSON.parse(raw) : {};
+        return {
+          url: cfg.url || '',
+          token: cfg.token || '',
+          enabled: Boolean(cfg.enabled)
+        };
+      } catch {
+        return { url: '', token: '', enabled: false };
+      }
+    }
+
+    function saveSheetConfig() {
+      localStorage.setItem(SHEET_CONFIG_KEY, JSON.stringify(sheetConfig));
+      renderSheetSyncPanel();
+    }
+
+    function loadSheetQueue() {
+      try {
+        const raw = localStorage.getItem(SHEET_QUEUE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveSheetQueue() {
+      localStorage.setItem(SHEET_QUEUE_KEY, JSON.stringify(sheetQueue));
+      renderSheetSyncPanel();
     }
 
     function saveState() {
@@ -522,6 +578,7 @@
       renderTripPanel();
       renderStats();
       renderLists();
+      renderSheetSyncPanel();
       if ($('#mapview').classList.contains('active')) renderMap();
     }
 
@@ -577,6 +634,7 @@
         state.trips.unshift(newTrip);
         state.activeTripId = newTrip.id;
         saveState();
+        queueSheetSync('trip', 'upsert', { trip: newTrip });
         toast('Kelionė sukurta.');
       });
 
@@ -662,6 +720,8 @@
       const key = map[kind];
       trip[key] = trip[key].filter(x => x.id !== id);
       saveState();
+      const typeMap = { 'Kuras': 'fuel', 'Išlaida': 'expense', 'Sustojimas': 'stop' };
+      queueSheetSync(typeMap[kind], 'delete', { trip, id });
       toast('Įrašas ištrintas.');
     };
 
@@ -727,15 +787,17 @@
         note: values.note || ''
       };
       trip.fuel.push(entry);
-      maybeCreateStopFromFuel(trip, entry);
+      const autoStop = maybeCreateStopFromFuel(trip, entry);
       saveState();
+      queueSheetSync('fuel', 'upsert', { trip, entry });
+      if (autoStop) queueSheetSync('stop', 'upsert', { trip, entry: autoStop });
       resetForm('fuelForm');
       toast('Kuro pylimas išsaugotas.');
     }
 
     function maybeCreateStopFromFuel(trip, fuel) {
-      if (!Number.isFinite(Number(fuel.latitude)) || !Number.isFinite(Number(fuel.longitude))) return;
-      trip.stops.push({
+      if (!Number.isFinite(Number(fuel.latitude)) || !Number.isFinite(Number(fuel.longitude))) return null;
+      const stop = {
         id: uid('stop'),
         dateTime: fuel.dateTime,
         type: 'Kuras',
@@ -745,7 +807,9 @@
         longitude: fuel.longitude,
         accuracy: fuel.accuracy,
         note: `${fuel.liters} l · ${money(fuel.totalAmount, fuel.currency)}`
-      });
+      };
+      trip.stops.push(stop);
+      return stop;
     }
 
     function addExpense(values) {
@@ -753,7 +817,7 @@
       if (!trip) return;
       const amount = parseNum(values.amount);
       if (!amount) return toast('Įvesk išlaidos sumą.');
-      trip.expenses.push({
+      const entry = {
         id: uid('expense'),
         dateTime: new Date(values.dateTime).toISOString(),
         category: values.category || 'Kita',
@@ -765,8 +829,10 @@
         longitude: parseNum(values.longitude),
         accuracy: parseNum(values.accuracy),
         note: values.note || ''
-      });
+      };
+      trip.expenses.push(entry);
       saveState();
+      queueSheetSync('expense', 'upsert', { trip, entry });
       resetForm('expenseForm');
       toast('Išlaida išsaugota.');
     }
@@ -777,7 +843,7 @@
       const lat = parseNum(values.latitude);
       const lon = parseNum(values.longitude);
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return toast('Sustojimui reikia GPS. Spausk „Imti GPS“.');
-      trip.stops.push({
+      const entry = {
         id: uid('stop'),
         dateTime: new Date(values.dateTime).toISOString(),
         type: values.type || 'Kita',
@@ -787,8 +853,10 @@
         longitude: lon,
         accuracy: parseNum(values.accuracy),
         note: values.note || ''
-      });
+      };
+      trip.stops.push(entry);
       saveState();
+      queueSheetSync('stop', 'upsert', { trip, entry });
       resetForm('stopForm');
       toast('Sustojimas išsaugotas.');
     }
@@ -929,6 +997,7 @@
       trip.endDate = new Date().toISOString();
       trip.endOdometer = parseNum(odo);
       saveState();
+      queueSheetSync('trip', 'upsert', { trip });
       toast('Kelionė užbaigta.');
     }
 
@@ -957,6 +1026,95 @@
         }
       };
       reader.readAsText(file);
+    }
+
+
+    function renderSheetSyncPanel() {
+      const urlInput = $('#sheetWebAppUrl');
+      if (!urlInput) return;
+      urlInput.value = sheetConfig.url || '';
+      $('#sheetToken').value = sheetConfig.token || '';
+      $('#sheetSyncEnabled').checked = Boolean(sheetConfig.enabled);
+      const status = $('#sheetSyncStatus');
+      const stateText = sheetConfig.enabled ? 'įjungta' : 'išjungta';
+      const urlText = sheetConfig.url ? 'URL yra' : 'URL neįvestas';
+      status.innerHTML = `Būsena: <strong>${stateText}</strong> · ${urlText} · eilėje: <strong>${sheetQueue.length}</strong> įrašų. ${isSyncing ? 'Siunčiama...' : ''}`;
+    }
+
+    function saveSheetConfigFromForm() {
+      sheetConfig = {
+        url: ($('#sheetWebAppUrl').value || '').trim(),
+        token: ($('#sheetToken').value || '').trim(),
+        enabled: $('#sheetSyncEnabled').checked
+      };
+      saveSheetConfig();
+      toast('Sheet nustatymai išsaugoti.');
+      if (sheetConfig.enabled) flushSheetQueue();
+    }
+
+    function queueSheetSync(type, action, payload) {
+      const item = {
+        queueId: uid('sync'),
+        createdAt: new Date().toISOString(),
+        type,
+        action,
+        payload
+      };
+      sheetQueue.push(item);
+      saveSheetQueue();
+      if (sheetConfig.enabled) flushSheetQueue();
+    }
+
+    function queueActiveTripFullSync() {
+      const trip = requireTrip();
+      if (!trip) return;
+      queueSheetSync('trip', 'upsert', { trip });
+      trip.fuel.forEach(entry => queueSheetSync('fuel', 'upsert', { trip, entry }));
+      trip.expenses.forEach(entry => queueSheetSync('expense', 'upsert', { trip, entry }));
+      trip.stops.forEach(entry => queueSheetSync('stop', 'upsert', { trip, entry }));
+      toast('Aktyvios kelionės įrašai įdėti į siuntimo eilę.');
+    }
+
+    async function flushSheetQueue() {
+      if (isSyncing) return;
+      if (!sheetConfig.enabled) return renderSheetSyncPanel();
+      if (!sheetConfig.url) return toast('Įvesk Apps Script Web App URL.');
+      if (!sheetQueue.length) return renderSheetSyncPanel();
+
+      isSyncing = true;
+      renderSheetSyncPanel();
+      let sent = 0;
+      try {
+        while (sheetQueue.length) {
+          const item = sheetQueue[0];
+          await sendSheetItem(item);
+          sheetQueue.shift();
+          sent++;
+          saveSheetQueue();
+        }
+        if (sent) toast(`Į Sheet išsiųsta: ${sent}`);
+      } catch (err) {
+        toast('Siuntimas į Sheet nepavyko. Įrašai liko eilėje.');
+      } finally {
+        isSyncing = false;
+        saveSheetQueue();
+      }
+    }
+
+    async function sendSheetItem(item) {
+      const body = {
+        app: 'MotoTripLog',
+        version: 2,
+        token: sheetConfig.token || '',
+        clientTime: new Date().toISOString(),
+        item
+      };
+      await fetch(sheetConfig.url, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(body)
+      });
     }
 
     function registerServiceWorker() {
@@ -990,6 +1148,9 @@
       $('#importJsonBtn').addEventListener('click', importJson);
       $('#endTripBtn').addEventListener('click', endTrip);
       $('#wipeBtn').addEventListener('click', wipeData);
+      $('#saveSheetConfigBtn').addEventListener('click', saveSheetConfigFromForm);
+      $('#syncNowBtn').addEventListener('click', flushSheetQueue);
+      $('#queueActiveTripBtn').addEventListener('click', queueActiveTripFullSync);
       $('#installBtn').addEventListener('click', async () => {
         if (!deferredInstallPrompt) return;
         deferredInstallPrompt.prompt();
@@ -998,6 +1159,8 @@
         $('#installBtn').hidden = true;
       });
     }
+
+    window.addEventListener('online', () => { if (sheetConfig.enabled) flushSheetQueue(); });
 
     initForms();
     wireEvents();
