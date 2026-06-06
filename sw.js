@@ -1,4 +1,4 @@
-const CACHE_NAME = 'moto-trip-log-v1';
+const CACHE_NAME = 'moto-trip-log-v2-sheets';
 const APP_SHELL = [
   './',
   './index.html',
