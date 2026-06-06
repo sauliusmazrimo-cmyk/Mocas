@@ -1,0 +1,1008 @@
+<!doctype html>
+<html lang="lt">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111827" />
+  <meta name="description" content="Motociklo kelionės PWA: kuras, išlaidos, sustojimai, maršrutas ir eksportas." />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <title>Moto Trip Log</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIINfQZPhQHnRyss3KxKsT1rkQWrdzNf3Q=" crossorigin="" />
+
+  <style>
+    :root {
+      --bg: #0b1120;
+      --panel: #111827;
+      --panel-2: #172033;
+      --card: #1f2937;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --line: rgba(255,255,255,0.12);
+      --accent: #f97316;
+      --accent-2: #fb923c;
+      --ok: #22c55e;
+      --warn: #eab308;
+      --danger: #ef4444;
+      --blue: #38bdf8;
+      --input: #0f172a;
+      --shadow: 0 12px 30px rgba(0,0,0,0.35);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { padding-bottom: env(safe-area-inset-bottom); }
+    button, input, select, textarea { font: inherit; }
+
+    .app {
+      width: min(1120px, 100%);
+      margin: 0 auto;
+      padding: 14px;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 900;
+      background: linear-gradient(180deg, rgba(11,17,32,0.98), rgba(11,17,32,0.86));
+      backdrop-filter: blur(10px);
+      padding: 10px 0 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .logo {
+      width: 42px; height: 42px; border-radius: 14px;
+      background: radial-gradient(circle at 30% 25%, #fed7aa, var(--accent));
+      display: grid; place-items: center; color: #111827; font-weight: 900;
+      box-shadow: var(--shadow);
+      flex: 0 0 auto;
+    }
+    h1 { font-size: 18px; line-height: 1.1; margin: 0; }
+    .subtitle { color: var(--muted); font-size: 12px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .status-pill {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 12px;
+      background: rgba(255,255,255,0.04);
+      text-align: right;
+      max-width: 50vw;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .status-pill strong { color: var(--text); }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .tabs button {
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 10px 8px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .tabs button.active { background: var(--accent); color: #111827; border-color: transparent; font-weight: 800; }
+
+    main { padding-top: 14px; }
+    .view { display: none; }
+    .view.active { display: block; }
+
+    .grid { display: grid; gap: 12px; }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+    .card {
+      background: linear-gradient(180deg, rgba(31,41,55,0.96), rgba(17,24,39,0.96));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 14px;
+      box-shadow: var(--shadow);
+    }
+    .card h2, .card h3 { margin: 0 0 12px; }
+    .card h2 { font-size: 18px; }
+    .card h3 { font-size: 15px; color: #f3f4f6; }
+    .small { font-size: 12px; color: var(--muted); }
+    .muted { color: var(--muted); }
+    .hr { height: 1px; background: var(--line); margin: 12px 0; }
+
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      padding: 12px 11px;
+      color: var(--text);
+      background: var(--input);
+      outline: none;
+    }
+    textarea { min-height: 76px; resize: vertical; }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent-2); box-shadow: 0 0 0 3px rgba(249,115,22,0.16); }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .form-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+
+    .btn {
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 13px;
+      cursor: pointer;
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--line);
+      min-height: 44px;
+    }
+    .btn.primary { background: var(--accent); color: #111827; border-color: transparent; font-weight: 800; }
+    .btn.ok { background: var(--ok); color: #052e16; border-color: transparent; font-weight: 800; }
+    .btn.warn { background: var(--warn); color: #422006; border-color: transparent; font-weight: 800; }
+    .btn.danger { background: var(--danger); color: #fff; border-color: transparent; font-weight: 800; }
+    .btn.blue { background: var(--blue); color: #082f49; border-color: transparent; font-weight: 800; }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .quick-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .quick-buttons .btn { text-align: left; padding: 14px; }
+    .quick-buttons strong { display: block; margin-bottom: 4px; }
+    .quick-buttons span { display: block; color: var(--muted); font-size: 12px; }
+
+    .stats { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+    .stat {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px;
+      background: rgba(255,255,255,0.04);
+    }
+    .stat .k { color: var(--muted); font-size: 12px; }
+    .stat .v { font-size: 20px; font-weight: 900; margin-top: 4px; }
+
+    .list { display: grid; gap: 8px; }
+    .item {
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      padding: 10px;
+      background: rgba(255,255,255,0.04);
+      display: grid;
+      gap: 4px;
+    }
+    .item-title { display: flex; justify-content: space-between; gap: 8px; font-weight: 800; }
+    .item-meta { color: var(--muted); font-size: 12px; }
+    .item-actions { display: flex; gap: 8px; margin-top: 6px; }
+    .item-actions .btn { padding: 8px 10px; min-height: 34px; font-size: 12px; }
+
+    #map { height: 62vh; min-height: 430px; border-radius: var(--radius); border: 1px solid var(--line); overflow: hidden; background: #020617; }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(18px + env(safe-area-inset-bottom));
+      transform: translateX(-50%) translateY(20px);
+      opacity: 0;
+      pointer-events: none;
+      background: #111827;
+      color: var(--text);
+      border: 1px solid var(--line);
+      padding: 12px 14px;
+      border-radius: 999px;
+      box-shadow: var(--shadow);
+      transition: 180ms ease;
+      z-index: 2000;
+      max-width: min(92vw, 560px);
+      text-align: center;
+      font-size: 13px;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    .hidden { display: none !important; }
+    .danger-text { color: #fecaca; }
+    .ok-text { color: #bbf7d0; }
+
+    @media (max-width: 760px) {
+      .app { padding: 10px; }
+      .tabs { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+      .tabs button { font-size: 11px; padding: 9px 4px; }
+      .grid-2, .grid-3, .row, .row-3 { grid-template-columns: 1fr; }
+      .quick-buttons { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: 1fr 1fr; }
+      #map { height: 58vh; min-height: 360px; }
+      .status-pill { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="topbar">
+        <div class="brand">
+          <div class="logo">MT</div>
+          <div>
+            <h1>Moto Trip Log</h1>
+            <div class="subtitle" id="activeTripLine">Kelionė nepasirinkta</div>
+          </div>
+        </div>
+        <div class="status-pill" id="gpsStatus">GPS: <strong>neimta</strong></div>
+      </div>
+      <nav class="tabs" aria-label="Navigacija">
+        <button class="tab active" data-view="dashboard">Pradžia</button>
+        <button class="tab" data-view="entry">Įrašai</button>
+        <button class="tab" data-view="mapview">Žemėlapis</button>
+        <button class="tab" data-view="exportview">Eksportas</button>
+      </nav>
+    </header>
+
+    <main>
+      <section id="dashboard" class="view active">
+        <div class="grid grid-2">
+          <div class="card">
+            <h2>Kelionė</h2>
+            <div id="tripPanel"></div>
+          </div>
+
+          <div class="card">
+            <h2>Greiti veiksmai</h2>
+            <div class="quick-buttons">
+              <button class="btn primary" data-jump="fuel"><strong>+ Kuro pylimas</strong><span>Litrai, suma, odometras, GPS</span></button>
+              <button class="btn ok" data-jump="expense"><strong>+ Išlaida</strong><span>Kava, maistas, viešbutis, keltas</span></button>
+              <button class="btn blue" data-jump="stop"><strong>+ Sustojimas</strong><span>Vieta, pastaba, GPS taškas</span></button>
+              <button class="btn" id="installBtn" hidden><strong>Įdiegti telefone</strong><span>Pridėti kaip PWA programėlę</span></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h2>Kelionės suvestinė</h2>
+          <div class="stats" id="stats"></div>
+          <div class="small" style="margin-top:10px">Kuro sąnaudos yra orientacinės, jeigu nevedi pilno kuro bakų ciklo nuo pilno iki pilno.</div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h2>Paskutiniai įrašai</h2>
+          <div class="list" id="recentList"></div>
+        </div>
+      </section>
+
+      <section id="entry" class="view">
+        <div class="grid grid-3">
+          <div class="card" id="fuelCard">
+            <h2>Kuro pylimas</h2>
+            <form id="fuelForm">
+              <div class="row">
+                <div><label>Data / laikas</label><input type="datetime-local" name="dateTime" required></div>
+                <div><label>Šalis</label><input name="country" placeholder="pvz. PL, DE, NL"></div>
+              </div>
+              <div class="row-3">
+                <div><label>Odometras, km</label><input name="odometer" inputmode="decimal" placeholder="pvz. 45210"></div>
+                <div><label>Litrai</label><input name="liters" inputmode="decimal" required placeholder="pvz. 18,7"></div>
+                <div><label>Suma</label><input name="totalAmount" inputmode="decimal" required placeholder="pvz. 34,50"></div>
+              </div>
+              <div class="row">
+                <div><label>Valiuta</label><select name="currency"></select></div>
+                <div><label>Degalinė</label><input name="stationName" placeholder="pvz. Shell"></div>
+              </div>
+              <div><label>Pastaba</label><textarea name="note" placeholder="pvz. pilnas bakas, 95 E10"></textarea></div>
+              <input type="hidden" name="latitude"><input type="hidden" name="longitude"><input type="hidden" name="accuracy">
+              <div class="form-actions">
+                <button type="button" class="btn blue gps-btn" data-form="fuelForm">Imti GPS</button>
+                <button type="submit" class="btn primary">Išsaugoti kurą</button>
+              </div>
+              <div class="small gps-line" data-form-line="fuelForm"></div>
+            </form>
+          </div>
+
+          <div class="card" id="expenseCard">
+            <h2>Išlaida</h2>
+            <form id="expenseForm">
+              <div class="row">
+                <div><label>Data / laikas</label><input type="datetime-local" name="dateTime" required></div>
+                <div><label>Kategorija</label><select name="category"></select></div>
+              </div>
+              <div class="row">
+                <div><label>Suma</label><input name="amount" inputmode="decimal" required placeholder="pvz. 12,80"></div>
+                <div><label>Valiuta</label><select name="currency"></select></div>
+              </div>
+              <div class="row">
+                <div><label>Mokėjimas</label><select name="paymentMethod"><option>Kortelė</option><option>Gryni</option><option>Kita</option></select></div>
+                <div><label>Šalis</label><input name="country" placeholder="pvz. DE"></div>
+              </div>
+              <div><label>Pastaba</label><textarea name="note" placeholder="pvz. kava + sumuštinis"></textarea></div>
+              <input type="hidden" name="latitude"><input type="hidden" name="longitude"><input type="hidden" name="accuracy">
+              <div class="form-actions">
+                <button type="button" class="btn blue gps-btn" data-form="expenseForm">Imti GPS</button>
+                <button type="submit" class="btn ok">Išsaugoti išlaidą</button>
+              </div>
+              <div class="small gps-line" data-form-line="expenseForm"></div>
+            </form>
+          </div>
+
+          <div class="card" id="stopCard">
+            <h2>Sustojimo taškas</h2>
+            <form id="stopForm">
+              <div class="row">
+                <div><label>Data / laikas</label><input type="datetime-local" name="dateTime" required></div>
+                <div><label>Tipas</label><select name="type"></select></div>
+              </div>
+              <div class="row">
+                <div><label>Pavadinimas</label><input name="name" placeholder="pvz. Bled, kempingas"></div>
+                <div><label>Odometras, km</label><input name="odometer" inputmode="decimal" placeholder="pvz. 45480"></div>
+              </div>
+              <div><label>Pastaba</label><textarea name="note" placeholder="ką verta prisiminti"></textarea></div>
+              <input type="hidden" name="latitude"><input type="hidden" name="longitude"><input type="hidden" name="accuracy">
+              <div class="form-actions">
+                <button type="button" class="btn blue gps-btn" data-form="stopForm">Imti GPS</button>
+                <button type="submit" class="btn primary">Išsaugoti sustojimą</button>
+              </div>
+              <div class="small gps-line" data-form-line="stopForm"></div>
+            </form>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h2>Visi įrašai</h2>
+          <div class="list" id="allEntries"></div>
+        </div>
+      </section>
+
+      <section id="mapview" class="view">
+        <div class="card">
+          <h2>Kelionės maršrutas</h2>
+          <div class="small" style="margin-bottom:10px">Linija jungiama pagal išsaugotų GPS taškų laiką. Tai nėra navigacijos kelio rekonstrukcija.</div>
+          <div id="map"></div>
+          <div class="form-actions">
+            <button class="btn blue" id="refreshMapBtn">Atnaujinti žemėlapį</button>
+            <button class="btn" id="centerMapBtn">Centruoti pagal taškus</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="exportview" class="view">
+        <div class="grid grid-2">
+          <div class="card">
+            <h2>Eksportas</h2>
+            <p class="small">Atsisiųsk duomenis prieš trindamas naršyklės istoriją. LocalStorage duomenys gyvena telefone, bet nėra amžini.</p>
+            <div class="form-actions">
+              <button class="btn primary" id="exportJsonBtn">JSON atsarginė kopija</button>
+              <button class="btn ok" id="exportCsvBtn">CSV lentelės</button>
+              <button class="btn blue" id="exportGpxBtn">GPX maršrutui</button>
+            </div>
+            <div class="hr"></div>
+            <h3>Importas</h3>
+            <p class="small">Importas pakeis dabartinius programėlės duomenis. Pirma pasidaryk JSON atsarginę kopiją.</p>
+            <input type="file" id="importFile" accept="application/json,.json" />
+            <div class="form-actions">
+              <button class="btn warn" id="importJsonBtn">Importuoti JSON</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Administravimas</h2>
+            <div class="form-actions">
+              <button class="btn" id="endTripBtn">Užbaigti aktyvią kelionę</button>
+              <button class="btn danger" id="wipeBtn">Ištrinti visus duomenis</button>
+            </div>
+            <div class="hr"></div>
+            <h3>Techninė pastaba</h3>
+            <p class="small">GPS telefone normaliai veikia tik per HTTPS arba localhost. Įkelk į Netlify / GitHub Pages / savo serverį. Failo atidarymas tiesiai iš telefono gali neveikti.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <script>
+    const STORAGE_KEY = 'motoTripPwa.v1';
+    const currencies = ['EUR', 'GBP', 'CHF', 'PLN', 'CZK', 'HUF', 'RON', 'BGN', 'DKK', 'SEK', 'NOK', 'TRY', 'USD'];
+    const expenseCategories = ['Kava', 'Maistas', 'Viešbutis', 'Keltas', 'Kelių mokesčiai', 'Parkingas', 'Motociklas', 'Apsipirkimas', 'Pramogos', 'Kita'];
+    const stopTypes = ['Startas', 'Kuras', 'Kava', 'Maistas', 'Viešbutis', 'Kempingas', 'Apžvalgos vieta', 'Siena', 'Gedimas', 'Finišas', 'Kita'];
+
+    let state = loadState();
+    let map = null;
+    let mapLayer = null;
+    let routeLayer = null;
+    let deferredInstallPrompt = null;
+
+    const $ = (sel, root = document) => root.querySelector(sel);
+    const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+    function uid(prefix = 'id') {
+      return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    function nowLocalDatetime() {
+      const d = new Date();
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      return d.toISOString().slice(0, 16);
+    }
+
+    function parseNum(value) {
+      if (value === undefined || value === null || value === '') return null;
+      const normalized = String(value).trim().replace(/\s/g, '').replace(',', '.');
+      const num = Number(normalized);
+      return Number.isFinite(num) ? num : null;
+    }
+
+    function money(value, currency = 'EUR') {
+      const num = Number(value || 0);
+      return `${num.toFixed(2)} ${currency}`;
+    }
+
+    function km(value) {
+      const num = Number(value || 0);
+      return `${num.toFixed(0)} km`;
+    }
+
+    function formatDateTime(value) {
+      if (!value) return '—';
+      try { return new Date(value).toLocaleString('lt-LT'); } catch { return value; }
+    }
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return { trips: [], activeTripId: null };
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed.trips)) return { trips: [], activeTripId: null };
+        return parsed;
+      } catch {
+        return { trips: [], activeTripId: null };
+      }
+    }
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      renderAll();
+    }
+
+    function activeTrip() {
+      return state.trips.find(t => t.id === state.activeTripId) || null;
+    }
+
+    function requireTrip() {
+      const trip = activeTrip();
+      if (!trip) {
+        toast('Pirma sukurk arba pasirink kelionę.');
+        showView('dashboard');
+        return null;
+      }
+      return trip;
+    }
+
+    function toast(message) {
+      const el = $('#toast');
+      el.textContent = message;
+      el.classList.add('show');
+      window.setTimeout(() => el.classList.remove('show'), 2400);
+    }
+
+    function fillSelect(select, values, selected = 'EUR') {
+      select.innerHTML = values.map(v => `<option ${v === selected ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    }
+
+    function initForms() {
+      $$('select[name="currency"]').forEach(sel => fillSelect(sel, currencies, 'EUR'));
+      fillSelect($('#expenseForm select[name="category"]'), expenseCategories, 'Kava');
+      fillSelect($('#stopForm select[name="type"]'), stopTypes, 'Kita');
+      $$('input[type="datetime-local"]').forEach(input => input.value = nowLocalDatetime());
+    }
+
+    function showView(id) {
+      $$('.view').forEach(v => v.classList.toggle('active', v.id === id));
+      $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === id));
+      if (id === 'mapview') setTimeout(renderMap, 120);
+    }
+
+    function renderAll() {
+      renderHeader();
+      renderTripPanel();
+      renderStats();
+      renderLists();
+      if ($('#mapview').classList.contains('active')) renderMap();
+    }
+
+    function renderHeader() {
+      const trip = activeTrip();
+      $('#activeTripLine').textContent = trip ? `${trip.name} · ${trip.motorcycle || 'motociklas nenurodytas'}` : 'Kelionė nepasirinkta';
+    }
+
+    function renderTripPanel() {
+      const trip = activeTrip();
+      const panel = $('#tripPanel');
+
+      const options = state.trips.map(t => `<option value="${t.id}" ${t.id === state.activeTripId ? 'selected' : ''}>${escapeHtml(t.name)}${t.endDate ? ' · baigta' : ''}</option>`).join('');
+
+      panel.innerHTML = `
+        <form id="tripForm">
+          <div class="row">
+            <div><label>Kelionės pavadinimas</label><input name="name" required placeholder="pvz. Alpės 2026"></div>
+            <div><label>Motociklas</label><input name="motorcycle" placeholder="pvz. Triumph Tiger 1200"></div>
+          </div>
+          <div class="row">
+            <div><label>Starto odometras, km</label><input name="startOdometer" inputmode="decimal" placeholder="pvz. 43210"></div>
+            <div><label>Pastaba</label><input name="notes" placeholder="pvz. 2 motociklai, kempingai"></div>
+          </div>
+          <div class="form-actions">
+            <button class="btn primary" type="submit">Sukurti naują kelionę</button>
+          </div>
+        </form>
+        ${state.trips.length ? `
+          <div class="hr"></div>
+          <label>Aktyvi kelionė</label>
+          <select id="tripSelect">${options}</select>
+          <div class="small" style="margin-top:8px">${trip ? `Pradžia: ${formatDateTime(trip.startDate)} · Starto km: ${trip.startOdometer ?? '—'}` : ''}</div>
+        ` : '<p class="small">Kol kas nėra kelionių. Sukurk pirmą.</p>'}
+      `;
+
+      $('#tripForm').addEventListener('submit', e => {
+        e.preventDefault();
+        const fd = new FormData(e.currentTarget);
+        const newTrip = {
+          id: uid('trip'),
+          name: String(fd.get('name') || '').trim(),
+          motorcycle: String(fd.get('motorcycle') || '').trim(),
+          startDate: new Date().toISOString(),
+          endDate: null,
+          startOdometer: parseNum(fd.get('startOdometer')),
+          endOdometer: null,
+          notes: String(fd.get('notes') || '').trim(),
+          fuel: [],
+          expenses: [],
+          stops: []
+        };
+        state.trips.unshift(newTrip);
+        state.activeTripId = newTrip.id;
+        saveState();
+        toast('Kelionė sukurta.');
+      });
+
+      const select = $('#tripSelect');
+      if (select) {
+        select.addEventListener('change', e => {
+          state.activeTripId = e.target.value;
+          saveState();
+          toast('Aktyvi kelionė pakeista.');
+        });
+      }
+    }
+
+    function calculateStats(trip) {
+      if (!trip) return null;
+      const fuelCost = trip.fuel.reduce((s, x) => s + Number(x.totalAmount || 0), 0);
+      const liters = trip.fuel.reduce((s, x) => s + Number(x.liters || 0), 0);
+      const expenseCost = trip.expenses.reduce((s, x) => s + Number(x.amount || 0), 0);
+      const odometers = [trip.startOdometer, trip.endOdometer, ...trip.fuel.map(x => x.odometer), ...trip.stops.map(x => x.odometer)]
+        .filter(v => Number.isFinite(Number(v))).map(Number);
+      const minOdo = odometers.length ? Math.min(...odometers) : null;
+      const maxOdo = odometers.length ? Math.max(...odometers) : null;
+      const distance = minOdo !== null && maxOdo !== null && maxOdo > minOdo ? maxOdo - minOdo : null;
+      const avg = distance && liters ? (liters / distance * 100) : null;
+      return { fuelCost, liters, expenseCost, totalCost: fuelCost + expenseCost, distance, avg, fuelCount: trip.fuel.length, expenseCount: trip.expenses.length, stopCount: trip.stops.length };
+    }
+
+    function renderStats() {
+      const trip = activeTrip();
+      const root = $('#stats');
+      if (!trip) {
+        root.innerHTML = '<div class="small">Nėra aktyvios kelionės.</div>';
+        return;
+      }
+      const s = calculateStats(trip);
+      root.innerHTML = `
+        <div class="stat"><div class="k">Bendra suma</div><div class="v">${money(s.totalCost)}</div></div>
+        <div class="stat"><div class="k">Kuras</div><div class="v">${money(s.fuelCost)}</div></div>
+        <div class="stat"><div class="k">Kitos išlaidos</div><div class="v">${money(s.expenseCost)}</div></div>
+        <div class="stat"><div class="k">Litrai</div><div class="v">${s.liters.toFixed(2)} l</div></div>
+        <div class="stat"><div class="k">Atstumas</div><div class="v">${s.distance ? km(s.distance) : '—'}</div></div>
+        <div class="stat"><div class="k">Sąnaudos</div><div class="v">${s.avg ? s.avg.toFixed(2) + ' l/100' : '—'}</div></div>
+        <div class="stat"><div class="k">Kuro pylimai</div><div class="v">${s.fuelCount}</div></div>
+        <div class="stat"><div class="k">Sustojimai</div><div class="v">${s.stopCount}</div></div>
+      `;
+    }
+
+    function combinedEntries(trip) {
+      if (!trip) return [];
+      const fuel = trip.fuel.map(x => ({...x, kind: 'Kuras', title: `${x.liters} l · ${money(x.totalAmount, x.currency)}`, meta: `${x.stationName || 'Degalinė'} · ${x.odometer ? km(x.odometer) : 'km —'}`}));
+      const exp = trip.expenses.map(x => ({...x, kind: 'Išlaida', title: `${x.category} · ${money(x.amount, x.currency)}`, meta: `${x.paymentMethod || ''} ${x.country ? '· ' + x.country : ''}`}));
+      const stop = trip.stops.map(x => ({...x, kind: 'Sustojimas', title: `${x.type} · ${x.name || 'be pavadinimo'}`, meta: `${x.odometer ? km(x.odometer) : 'km —'}`}));
+      return [...fuel, ...exp, ...stop].sort((a, b) => new Date(b.dateTime) - new Date(a.dateTime));
+    }
+
+    function renderLists() {
+      const trip = activeTrip();
+      const entries = combinedEntries(trip);
+      $('#recentList').innerHTML = entries.slice(0, 8).map(renderEntry).join('') || '<div class="small">Įrašų dar nėra.</div>';
+      $('#allEntries').innerHTML = entries.map(renderEntry).join('') || '<div class="small">Įrašų dar nėra.</div>';
+    }
+
+    function renderEntry(x) {
+      const hasGps = Number.isFinite(Number(x.latitude)) && Number.isFinite(Number(x.longitude));
+      return `
+        <div class="item">
+          <div class="item-title"><span>${escapeHtml(x.kind)}</span><span>${escapeHtml(formatDateTime(x.dateTime))}</span></div>
+          <div>${escapeHtml(x.title)}</div>
+          <div class="item-meta">${escapeHtml(x.meta || '')}${hasGps ? ' · GPS yra' : ' · GPS nėra'}</div>
+          ${x.note ? `<div class="small">${escapeHtml(x.note)}</div>` : ''}
+          <div class="item-actions">
+            <button class="btn danger" onclick="deleteEntry('${x.kind}','${x.id}')">Trinti</button>
+          </div>
+        </div>
+      `;
+    }
+
+    window.deleteEntry = function(kind, id) {
+      const trip = requireTrip();
+      if (!trip) return;
+      if (!confirm('Trinti šį įrašą?')) return;
+      const map = { 'Kuras': 'fuel', 'Išlaida': 'expenses', 'Sustojimas': 'stops' };
+      const key = map[kind];
+      trip[key] = trip[key].filter(x => x.id !== id);
+      saveState();
+      toast('Įrašas ištrintas.');
+    };
+
+    async function getGpsForForm(formId) {
+      const form = document.getElementById(formId);
+      if (!navigator.geolocation) {
+        toast('Ši naršyklė nepalaiko GPS.');
+        return;
+      }
+      $('#gpsStatus').innerHTML = 'GPS: <strong>ieškoma...</strong>';
+      setGpsLine(formId, 'Ieškoma GPS vieta...');
+      try {
+        const pos = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 20000,
+            maximumAge: 15000
+          });
+        });
+        const { latitude, longitude, accuracy } = pos.coords;
+        form.latitude.value = latitude;
+        form.longitude.value = longitude;
+        form.accuracy.value = accuracy;
+        $('#gpsStatus').innerHTML = `GPS: <strong>${latitude.toFixed(5)}, ${longitude.toFixed(5)}</strong>`;
+        setGpsLine(formId, `GPS paimtas: ${latitude.toFixed(6)}, ${longitude.toFixed(6)} · tikslumas ~${Math.round(accuracy)} m`);
+        toast('GPS vieta išsaugota formoje.');
+      } catch (err) {
+        $('#gpsStatus').innerHTML = 'GPS: <strong>klaida</strong>';
+        setGpsLine(formId, 'GPS nepavyko paimti. Patikrink leidimus, HTTPS ir ar įjungta vieta telefone.');
+        toast('GPS nepavyko paimti.');
+      }
+    }
+
+    function setGpsLine(formId, text) {
+      const el = $(`[data-form-line="${formId}"]`);
+      if (el) el.textContent = text;
+    }
+
+    function formValues(form) {
+      const fd = new FormData(form);
+      return Object.fromEntries(fd.entries());
+    }
+
+    function addFuel(values) {
+      const trip = requireTrip();
+      if (!trip) return;
+      const liters = parseNum(values.liters);
+      const totalAmount = parseNum(values.totalAmount);
+      if (!liters || !totalAmount) return toast('Įvesk litrus ir sumą.');
+      const entry = {
+        id: uid('fuel'),
+        dateTime: new Date(values.dateTime).toISOString(),
+        country: values.country || '',
+        stationName: values.stationName || '',
+        odometer: parseNum(values.odometer),
+        liters,
+        totalAmount,
+        currency: values.currency || 'EUR',
+        pricePerLiter: totalAmount / liters,
+        latitude: parseNum(values.latitude),
+        longitude: parseNum(values.longitude),
+        accuracy: parseNum(values.accuracy),
+        note: values.note || ''
+      };
+      trip.fuel.push(entry);
+      maybeCreateStopFromFuel(trip, entry);
+      saveState();
+      resetForm('fuelForm');
+      toast('Kuro pylimas išsaugotas.');
+    }
+
+    function maybeCreateStopFromFuel(trip, fuel) {
+      if (!Number.isFinite(Number(fuel.latitude)) || !Number.isFinite(Number(fuel.longitude))) return;
+      trip.stops.push({
+        id: uid('stop'),
+        dateTime: fuel.dateTime,
+        type: 'Kuras',
+        name: fuel.stationName || 'Kuro pylimas',
+        odometer: fuel.odometer,
+        latitude: fuel.latitude,
+        longitude: fuel.longitude,
+        accuracy: fuel.accuracy,
+        note: `${fuel.liters} l · ${money(fuel.totalAmount, fuel.currency)}`
+      });
+    }
+
+    function addExpense(values) {
+      const trip = requireTrip();
+      if (!trip) return;
+      const amount = parseNum(values.amount);
+      if (!amount) return toast('Įvesk išlaidos sumą.');
+      trip.expenses.push({
+        id: uid('expense'),
+        dateTime: new Date(values.dateTime).toISOString(),
+        category: values.category || 'Kita',
+        amount,
+        currency: values.currency || 'EUR',
+        paymentMethod: values.paymentMethod || '',
+        country: values.country || '',
+        latitude: parseNum(values.latitude),
+        longitude: parseNum(values.longitude),
+        accuracy: parseNum(values.accuracy),
+        note: values.note || ''
+      });
+      saveState();
+      resetForm('expenseForm');
+      toast('Išlaida išsaugota.');
+    }
+
+    function addStop(values) {
+      const trip = requireTrip();
+      if (!trip) return;
+      const lat = parseNum(values.latitude);
+      const lon = parseNum(values.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return toast('Sustojimui reikia GPS. Spausk „Imti GPS“.');
+      trip.stops.push({
+        id: uid('stop'),
+        dateTime: new Date(values.dateTime).toISOString(),
+        type: values.type || 'Kita',
+        name: values.name || '',
+        odometer: parseNum(values.odometer),
+        latitude: lat,
+        longitude: lon,
+        accuracy: parseNum(values.accuracy),
+        note: values.note || ''
+      });
+      saveState();
+      resetForm('stopForm');
+      toast('Sustojimas išsaugotas.');
+    }
+
+    function resetForm(formId) {
+      const form = document.getElementById(formId);
+      form.reset();
+      $$('select[name="currency"]', form).forEach(sel => sel.value = 'EUR');
+      const dt = $('input[type="datetime-local"]', form);
+      if (dt) dt.value = nowLocalDatetime();
+      setGpsLine(formId, '');
+    }
+
+    function geoPoints(trip) {
+      if (!trip) return [];
+      const points = [];
+      trip.stops.forEach(x => {
+        if (Number.isFinite(Number(x.latitude)) && Number.isFinite(Number(x.longitude))) {
+          points.push({ lat: Number(x.latitude), lon: Number(x.longitude), time: x.dateTime, title: `${x.type}: ${x.name || ''}`, note: x.note || '', kind: 'Sustojimas' });
+        }
+      });
+      trip.expenses.forEach(x => {
+        if (Number.isFinite(Number(x.latitude)) && Number.isFinite(Number(x.longitude))) {
+          points.push({ lat: Number(x.latitude), lon: Number(x.longitude), time: x.dateTime, title: `${x.category}: ${money(x.amount, x.currency)}`, note: x.note || '', kind: 'Išlaida' });
+        }
+      });
+      return points.sort((a,b) => new Date(a.time) - new Date(b.time));
+    }
+
+    function renderMap() {
+      const trip = activeTrip();
+      if (!window.L) {
+        $('#map').innerHTML = '<div style="padding:18px">Žemėlapio biblioteka neužsikrovė. Reikia interneto bent pirmam užkrovimui.</div>';
+        return;
+      }
+      if (!map) {
+        map = L.map('map', { zoomControl: true });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+        map.setView([54.6872, 25.2797], 6);
+      }
+      if (mapLayer) mapLayer.remove();
+      if (routeLayer) routeLayer.remove();
+      mapLayer = L.layerGroup().addTo(map);
+
+      const points = geoPoints(trip);
+      if (!points.length) return;
+
+      const latlngs = points.map(p => [p.lat, p.lon]);
+      points.forEach((p, idx) => {
+        L.marker([p.lat, p.lon]).addTo(mapLayer).bindPopup(`
+          <strong>${escapeHtml(idx + 1 + '. ' + p.title)}</strong><br>
+          ${escapeHtml(formatDateTime(p.time))}<br>
+          ${escapeHtml(p.note || '')}<br>
+          <small>${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}</small>
+        `);
+      });
+      routeLayer = L.polyline(latlngs, { weight: 4 }).addTo(map);
+      centerMap();
+    }
+
+    function centerMap() {
+      if (!map) return;
+      const trip = activeTrip();
+      const points = geoPoints(trip);
+      if (!points.length) return toast('Nėra GPS taškų.');
+      const bounds = L.latLngBounds(points.map(p => [p.lat, p.lon]));
+      map.fitBounds(bounds, { padding: [24, 24] });
+    }
+
+    function download(filename, content, type = 'text/plain;charset=utf-8') {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportJson() {
+      download(`moto-trip-backup-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(state, null, 2), 'application/json;charset=utf-8');
+    }
+
+    function csvEscape(value) {
+      const v = String(value ?? '');
+      if (/[",\n;]/.test(v)) return '"' + v.replace(/"/g, '""') + '"';
+      return v;
+    }
+
+    function toCsv(rows) {
+      if (!rows.length) return '';
+      const headers = Object.keys(rows[0]);
+      return [headers.join(';'), ...rows.map(r => headers.map(h => csvEscape(r[h])).join(';'))].join('\n');
+    }
+
+    function exportCsv() {
+      const trip = requireTrip();
+      if (!trip) return;
+      const fuelRows = trip.fuel.map(x => ({ trip: trip.name, ...x }));
+      const expenseRows = trip.expenses.map(x => ({ trip: trip.name, ...x }));
+      const stopRows = trip.stops.map(x => ({ trip: trip.name, ...x }));
+      const content = [
+        '--- FUEL ---', toCsv(fuelRows), '',
+        '--- EXPENSES ---', toCsv(expenseRows), '',
+        '--- STOPS ---', toCsv(stopRows)
+      ].join('\n');
+      download(`moto-trip-${safeFileName(trip.name)}.csv`, content, 'text/csv;charset=utf-8');
+    }
+
+    function safeFileName(value) {
+      return String(value || 'trip').toLowerCase().replace(/[^a-z0-9ąčęėįšųūž-]+/gi, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    }
+
+    function exportGpx() {
+      const trip = requireTrip();
+      if (!trip) return;
+      const points = geoPoints(trip);
+      if (!points.length) return toast('GPX eksportui nėra GPS taškų.');
+      const trkpts = points.map(p => `    <trkpt lat="${p.lat}" lon="${p.lon}"><time>${new Date(p.time).toISOString()}</time><name>${xmlEscape(p.title)}</name><desc>${xmlEscape(p.note || '')}</desc></trkpt>`).join('\n');
+      const wpts = points.map(p => `  <wpt lat="${p.lat}" lon="${p.lon}"><name>${xmlEscape(p.title)}</name><time>${new Date(p.time).toISOString()}</time><desc>${xmlEscape(p.note || '')}</desc></wpt>`).join('\n');
+      const gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Moto Trip Log" xmlns="http://www.topografix.com/GPX/1/1">\n  <metadata><name>${xmlEscape(trip.name)}</name></metadata>\n${wpts}\n  <trk><name>${xmlEscape(trip.name)}</name><trkseg>\n${trkpts}\n  </trkseg></trk>\n</gpx>`;
+      download(`moto-trip-${safeFileName(trip.name)}.gpx`, gpx, 'application/gpx+xml;charset=utf-8');
+    }
+
+    function xmlEscape(value) {
+      return String(value ?? '').replace(/[<>&'\"]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;'}[ch]));
+    }
+
+    function endTrip() {
+      const trip = requireTrip();
+      if (!trip) return;
+      const odo = prompt('Įvesk finišo odometrą, km. Gali palikti tuščią.');
+      trip.endDate = new Date().toISOString();
+      trip.endOdometer = parseNum(odo);
+      saveState();
+      toast('Kelionė užbaigta.');
+    }
+
+    function wipeData() {
+      if (!confirm('Tikrai ištrinti VISUS duomenis telefone? Šito neatstatysi be JSON kopijos.')) return;
+      state = { trips: [], activeTripId: null };
+      localStorage.removeItem(STORAGE_KEY);
+      saveState();
+      toast('Visi duomenys ištrinti.');
+    }
+
+    function importJson() {
+      const file = $('#importFile').files[0];
+      if (!file) return toast('Pasirink JSON failą.');
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const imported = JSON.parse(reader.result);
+          if (!imported || !Array.isArray(imported.trips)) throw new Error('Bad format');
+          if (!confirm('Importas pakeis dabartinius duomenis. Tęsti?')) return;
+          state = imported;
+          saveState();
+          toast('JSON importuotas.');
+        } catch {
+          toast('Netinkamas JSON failas.');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function registerServiceWorker() {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      }
+    }
+
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      $('#installBtn').hidden = false;
+    });
+
+    function wireEvents() {
+      $$('.tab').forEach(btn => btn.addEventListener('click', () => showView(btn.dataset.view)));
+      $$('[data-jump]').forEach(btn => btn.addEventListener('click', () => {
+        showView('entry');
+        const id = btn.dataset.jump === 'fuel' ? 'fuelCard' : btn.dataset.jump === 'expense' ? 'expenseCard' : 'stopCard';
+        setTimeout(() => document.getElementById(id).scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+      }));
+      $$('.gps-btn').forEach(btn => btn.addEventListener('click', () => getGpsForForm(btn.dataset.form)));
+      $('#fuelForm').addEventListener('submit', e => { e.preventDefault(); addFuel(formValues(e.currentTarget)); });
+      $('#expenseForm').addEventListener('submit', e => { e.preventDefault(); addExpense(formValues(e.currentTarget)); });
+      $('#stopForm').addEventListener('submit', e => { e.preventDefault(); addStop(formValues(e.currentTarget)); });
+      $('#refreshMapBtn').addEventListener('click', renderMap);
+      $('#centerMapBtn').addEventListener('click', centerMap);
+      $('#exportJsonBtn').addEventListener('click', exportJson);
+      $('#exportCsvBtn').addEventListener('click', exportCsv);
+      $('#exportGpxBtn').addEventListener('click', exportGpx);
+      $('#importJsonBtn').addEventListener('click', importJson);
+      $('#endTripBtn').addEventListener('click', endTrip);
+      $('#wipeBtn').addEventListener('click', wipeData);
+      $('#installBtn').addEventListener('click', async () => {
+        if (!deferredInstallPrompt) return;
+        deferredInstallPrompt.prompt();
+        await deferredInstallPrompt.userChoice;
+        deferredInstallPrompt = null;
+        $('#installBtn').hidden = true;
+      });
+    }
+
+    initForms();
+    wireEvents();
+    renderAll();
+    registerServiceWorker();
+  </script>
+</body>
+</html>

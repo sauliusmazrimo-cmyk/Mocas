@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fed7aa"/>
+      <stop offset="0.5" stop-color="#fb923c"/>
+      <stop offset="1" stop-color="#ea580c"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#111827"/>
+  <circle cx="256" cy="256" r="184" fill="url(#g)"/>
+  <path d="M126 306c0-36 29-65 65-65 25 0 47 14 58 35h31l28-79h-54v-34h91l-42 119h32c11-24 34-41 62-41 36 0 65 29 65 65s-29 65-65 65c-31 0-57-22-63-51H249c-7 29-32 51-63 51-36 0-60-29-60-65zm65 31c17 0 31-14 31-31s-14-31-31-31-31 14-31 31 14 31 31 31zm206 0c17 0 31-14 31-31s-14-31-31-31-31 14-31 31 14 31 31 31z" fill="#111827"/>
+  <text x="256" y="146" text-anchor="middle" font-family="Arial, sans-serif" font-size="54" font-weight="900" fill="#111827">MT</text>
+</svg>
